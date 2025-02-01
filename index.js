@@ -179,7 +179,7 @@ app.delete(['/recipes/:id', '/recipes/:id/'], (req, res) => {
 
 // catch-all: 未定義のエンドポイントは常に HTTP 484 を返す
 app.use((req, res) => {
-  res.status(484).json({ message: "Not Found" });
+  res.status(404).json({ message: "Not Found" });
 });
 
 // サーバー起動（Heroku では process.env.PORT が自動設定される）
