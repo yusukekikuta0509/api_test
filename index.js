@@ -1,21 +1,10 @@
-require('dotenv').config();
 const express = require('express');
 const mysql = require('mysql2');
 const app = express();
 
 app.use(express.json());
 
-// DB接続情報は環境変数で設定してください。
-// ローカル環境用のデフォルト値（適宜変更）：
-const pool = mysql.createPool({
-  host: process.env.DB_HOST || 'localhost',
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || 'your_password',
-  database: process.env.DB_DATABASE || 'recipes_db',
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
-});
+
 
 // ------------- エンドポイント実装 ------------- //
 

@@ -1,5 +1,5 @@
 {
-    "name": "my-recipes-api",
+    "name": "api_test",
     "version": "1.0.0",
     "description": "RESTfulAPI",
     "main": "index.js",
