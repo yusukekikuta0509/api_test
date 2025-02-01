@@ -6,8 +6,8 @@ const app = express();
 
 app.use(express.json());
 
-// Heroku の場合、JAWSDB_URL が設定されていればそれを利用、なければローカルの環境変数を利用する
-const dbConfig = process.env.JAWSDB_URL ? 
+// Heroku の場合、JAWSDB_URL が設定されていればそれを利用し、なければローカルの環境変数を利用する
+const dbConfig = process.env.JAWSDB_URL ?
   (() => {
     const dbUrl = url.parse(process.env.JAWSDB_URL);
     const [user, password] = dbUrl.auth.split(':');
@@ -31,7 +31,7 @@ const pool = mysql.createPool({
   queueLimit: 0
 });
 
-// BASE_URL "/" は明示的に 404 を返す（テスト要件）
+// BASE_URL "/" は明示的に 404 を返す（テスト仕様）
 app.get('/', (req, res) => {
   res.status(404).json({ message: "Not Found" });
 });
@@ -108,6 +108,13 @@ app.get(['/recipes', '/recipes/'], (req, res) => {
 app.get(['/recipes/:id', '/recipes/:id/'], (req, res) => {
   res.set('Cache-Control', 'public, max-age=60');
   const id = req.params.id;
+  // id が無効な場合はエラー応答
+  if (!id || id === "undefined") {
+    return res.status(200).json({
+      message: "Recipe details by id",
+      recipe: []
+    });
+  }
   const query = "SELECT id, title, making_time, serves, ingredients, cost FROM recipes WHERE id = ?";
   pool.query(query, [id], (err, rows) => {
     if (err || rows.length === 0) {
@@ -129,6 +136,10 @@ app.get(['/recipes/:id', '/recipes/:id/'], (req, res) => {
 // 指定 id のレシピを更新（必須パラメーター: title, making_time, serves, ingredients, cost）
 app.patch(['/recipes/:id', '/recipes/:id/'], (req, res) => {
   const id = req.params.id;
+  // id が無効な場合はエラーレスポンス
+  if (!id || id === "undefined") {
+    return res.status(200).json({ message: "No Recipe found" });
+  }
   const { title, making_time, serves, ingredients, cost } = req.body;
   if (!title || !making_time || !serves || !ingredients || cost === undefined) {
     return res.status(200).json({
@@ -164,6 +175,9 @@ app.patch(['/recipes/:id', '/recipes/:id/'], (req, res) => {
 // 指定 id のレシピを削除する。存在しない場合はエラーレスポンスを返す。
 app.delete(['/recipes/:id', '/recipes/:id/'], (req, res) => {
   const id = req.params.id;
+  if (!id || id === "undefined") {
+    return res.status(200).json({ message: "No Recipe found" });
+  }
   pool.query("SELECT * FROM recipes WHERE id = ?", [id], (err, rows) => {
     if (err || rows.length === 0) {
       return res.status(200).json({ message: "No Recipe found" });
