@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const express = require('express');
 const mysql = require('mysql2');
 const app = express();
@@ -15,9 +17,13 @@ const pool = mysql.createPool({
   queueLimit: 0
 });
 
-// ● POST /recipes
-// レシピ新規作成（必須パラメーター: title, making_time, serves, ingredients, cost）
-app.post('/recipes', (req, res) => {
+// BASE_URL "/" は404で返す（テスト要件）
+app.get('/', (req, res) => {
+  res.status(404).json({ message: "Not Found" });
+});
+
+// POST /recipes
+app.post(['/recipes', '/recipes/'], (req, res) => {
   const { title, making_time, serves, ingredients, cost } = req.body;
   if (!title || !making_time || !serves || !ingredients || cost === undefined) {
     return res.status(200).json({
@@ -25,7 +31,6 @@ app.post('/recipes', (req, res) => {
       required: "title, making_time, serves, ingredients, cost"
     });
   }
-
   const query = "INSERT INTO recipes (title, making_time, serves, ingredients, cost) VALUES (?, ?, ?, ?, ?)";
   pool.query(query, [title, making_time, serves, ingredients, cost], (err, result) => {
     if (err) {
@@ -36,7 +41,6 @@ app.post('/recipes', (req, res) => {
       });
     }
     const insertedId = result.insertId;
-    // 作成されたレシピ情報を取得（created_at, updated_at をフォーマットして返す）
     const selectQuery = `
       SELECT 
         id, 
@@ -57,7 +61,7 @@ app.post('/recipes', (req, res) => {
         });
       }
       const recipe = rows[0];
-      recipe.cost = recipe.cost.toString(); // サンプルレスポンスに合わせ
+      recipe.cost = recipe.cost.toString();
       return res.status(200).json({
         message: "Recipe successfully created!",
         recipe: [recipe]
@@ -66,9 +70,8 @@ app.post('/recipes', (req, res) => {
   });
 });
 
-// ● GET /recipes
-// 全レシピ一覧を返す（GET リクエストにはキャッシュ用ヘッダーを設定）
-app.get('/recipes', (req, res) => {
+// GET /recipes
+app.get(['/recipes', '/recipes/'], (req, res) => {
   res.set('Cache-Control', 'public, max-age=60');
   const query = "SELECT id, title, making_time, serves, ingredients, cost FROM recipes";
   pool.query(query, (err, rows) => {
@@ -84,9 +87,8 @@ app.get('/recipes', (req, res) => {
   });
 });
 
-// ● GET /recipes/:id
-// 指定 id のレシピのみを返す
-app.get('/recipes/:id', (req, res) => {
+// GET /recipes/:id
+app.get(['/recipes/:id', '/recipes/:id/'], (req, res) => {
   res.set('Cache-Control', 'public, max-age=60');
   const id = req.params.id;
   const query = "SELECT id, title, making_time, serves, ingredients, cost FROM recipes WHERE id = ?";
@@ -106,9 +108,8 @@ app.get('/recipes/:id', (req, res) => {
   });
 });
 
-// ● PATCH /recipes/:id
-// 指定 id のレシピを更新（必須パラメーター: title, making_time, serves, ingredients, cost）
-app.patch('/recipes/:id', (req, res) => {
+// PATCH /recipes/:id
+app.patch(['/recipes/:id', '/recipes/:id/'], (req, res) => {
   const id = req.params.id;
   const { title, making_time, serves, ingredients, cost } = req.body;
   if (!title || !making_time || !serves || !ingredients || cost === undefined) {
@@ -117,7 +118,6 @@ app.patch('/recipes/:id', (req, res) => {
       required: "title, making_time, serves, ingredients, cost"
     });
   }
-  // まず対象レシピの存在確認
   pool.query("SELECT * FROM recipes WHERE id = ?", [id], (err, rows) => {
     if (err || rows.length === 0) {
       return res.status(200).json({ message: "No Recipe found" });
@@ -142,9 +142,8 @@ app.patch('/recipes/:id', (req, res) => {
   });
 });
 
-// ● DELETE /recipes/:id
-// 指定 id のレシピを削除する。存在しない場合はエラーレスポンスを返す。
-app.delete('/recipes/:id', (req, res) => {
+// DELETE /recipes/:id
+app.delete(['/recipes/:id', '/recipes/:id/'], (req, res) => {
   const id = req.params.id;
   pool.query("SELECT * FROM recipes WHERE id = ?", [id], (err, rows) => {
     if (err || rows.length === 0) {
@@ -159,12 +158,12 @@ app.delete('/recipes/:id', (req, res) => {
   });
 });
 
-// ● 未定義のエンドポイントは常に HTTP 484 を返す
+// catch-all: 未定義のエンドポイントは常に 484 を返す
 app.use((req, res) => {
   res.status(484).json({ message: "Not Found" });
 });
 
-// サーバー起動（Herokuではprocess.env.PORTが自動設定されるため、そちらを利用）
+// サーバー起動
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
