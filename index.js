@@ -1,28 +1,43 @@
 require('dotenv').config();
-
 const express = require('express');
 const mysql = require('mysql2');
+const url = require('url');
 const app = express();
 
 app.use(express.json());
 
-// MySQL接続プールの定義
+// Heroku の場合、JAWSDB_URL が設定されていればそれを利用、なければローカルの環境変数を利用する
+const dbConfig = process.env.JAWSDB_URL ? 
+  (() => {
+    const dbUrl = url.parse(process.env.JAWSDB_URL);
+    const [user, password] = dbUrl.auth.split(':');
+    return {
+      host: dbUrl.hostname,
+      user: user,
+      password: password,
+      database: dbUrl.pathname.replace('/', '')
+    };
+  })() : {
+    host: process.env.DB_HOST || 'localhost',
+    user: process.env.DB_USER || 'root',
+    password: process.env.DB_PASSWORD || 'your_password',
+    database: process.env.DB_DATABASE || 'recipes_db'
+  };
+
 const pool = mysql.createPool({
-  host: process.env.DB_HOST || 'localhost',
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || 'your_password',
-  database: process.env.DB_DATABASE || 'recipes_db',
+  ...dbConfig,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0
 });
 
-// BASE_URL "/" は404で返す（テスト要件）
+// BASE_URL "/" は明示的に 404 を返す（テスト要件）
 app.get('/', (req, res) => {
   res.status(404).json({ message: "Not Found" });
 });
 
-// POST /recipes
+// ● POST /recipes
+// レシピ新規作成（必須パラメーター: title, making_time, serves, ingredients, cost）
 app.post(['/recipes', '/recipes/'], (req, res) => {
   const { title, making_time, serves, ingredients, cost } = req.body;
   if (!title || !making_time || !serves || !ingredients || cost === undefined) {
@@ -49,8 +64,8 @@ app.post(['/recipes', '/recipes/'], (req, res) => {
         serves, 
         ingredients, 
         cost, 
-        DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') as created_at, 
-        DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') as updated_at 
+        DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at, 
+        DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at 
       FROM recipes 
       WHERE id = ?`;
     pool.query(selectQuery, [insertedId], (err, rows) => {
@@ -70,7 +85,8 @@ app.post(['/recipes', '/recipes/'], (req, res) => {
   });
 });
 
-// GET /recipes
+// ● GET /recipes
+// 全レシピ一覧を返す（キャッシュ用ヘッダー設定）
 app.get(['/recipes', '/recipes/'], (req, res) => {
   res.set('Cache-Control', 'public, max-age=60');
   const query = "SELECT id, title, making_time, serves, ingredients, cost FROM recipes";
@@ -87,7 +103,8 @@ app.get(['/recipes', '/recipes/'], (req, res) => {
   });
 });
 
-// GET /recipes/:id
+// ● GET /recipes/:id
+// 指定 id のレシピのみを返す
 app.get(['/recipes/:id', '/recipes/:id/'], (req, res) => {
   res.set('Cache-Control', 'public, max-age=60');
   const id = req.params.id;
@@ -108,7 +125,8 @@ app.get(['/recipes/:id', '/recipes/:id/'], (req, res) => {
   });
 });
 
-// PATCH /recipes/:id
+// ● PATCH /recipes/:id
+// 指定 id のレシピを更新（必須パラメーター: title, making_time, serves, ingredients, cost）
 app.patch(['/recipes/:id', '/recipes/:id/'], (req, res) => {
   const id = req.params.id;
   const { title, making_time, serves, ingredients, cost } = req.body;
@@ -142,7 +160,8 @@ app.patch(['/recipes/:id', '/recipes/:id/'], (req, res) => {
   });
 });
 
-// DELETE /recipes/:id
+// ● DELETE /recipes/:id
+// 指定 id のレシピを削除する。存在しない場合はエラーレスポンスを返す。
 app.delete(['/recipes/:id', '/recipes/:id/'], (req, res) => {
   const id = req.params.id;
   pool.query("SELECT * FROM recipes WHERE id = ?", [id], (err, rows) => {
@@ -158,12 +177,12 @@ app.delete(['/recipes/:id', '/recipes/:id/'], (req, res) => {
   });
 });
 
-// catch-all: 未定義のエンドポイントは常に 484 を返す
+// catch-all: 未定義のエンドポイントは常に HTTP 484 を返す
 app.use((req, res) => {
   res.status(484).json({ message: "Not Found" });
 });
 
-// サーバー起動
+// サーバー起動（Heroku では process.env.PORT が自動設定される）
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
