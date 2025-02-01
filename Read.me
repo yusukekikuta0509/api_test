@@ -1,0 +1,110 @@
+# My  API
+ 
+REST の設計原則に基づき、MySQL データベースを利用してレシピの作成、取得、更新、削除を行う各種エンドポイントを提供します。
+
+## 機能
+
+- **POST /recipes**  
+  レシピの新規作成を行います。  
+  **必須パラメーター:** `title`, `making_time`, `serves`, `ingredients`, `cost`  
+  ※ パラメーターが不足している場合はエラーメッセージを返します。
+
+- **GET /recipes**  
+  登録されている全レシピの一覧を取得します。  
+  ※ レスポンスはキャッシュ可能なヘッダー（`Cache-Control: public, max-age=60`）が付与されます。
+
+- **GET /recipes/{id}**  
+  指定した ID のレシピ詳細を取得します。
+
+- **PATCH /recipes/{id}**  
+  指定した ID のレシピ情報を更新します。  
+  **必須パラメーター:** `title`, `making_time`, `serves`, `ingredients`, `cost`  
+  ※ 更新後のレシピ情報が JSON 形式で返されます。
+
+- **DELETE /recipes/{id}**  
+  指定した ID のレシピを削除します。  
+  ※ 削除に成功した場合は `"Recipe successfully removed!"` のメッセージが返され、存在しない場合は `"No Recipe found"` が返されます。
+
+- **未定義のエンドポイント**  
+  定義されていないエンドポイントにアクセスした場合、HTTP ステータスコード `484` と共に `{ "message": "Not Found" }` が返されます。
+
+> **※ 本プロジェクトでは、 Code on Demand の実装は採用していません。**
+
+## データベース
+
+この API では MySQL を使用しています。  
+データベースのスキーマは以下の `sql/create.sql` の内容に準拠しています。
+
+```sql
+DROP TABLE IF EXISTS recipes;
+
+CREATE TABLE IF NOT EXISTS recipes (
+  id integer PRIMARY KEY AUTO_INCREMENT,
+  title varchar(100) CHARACTER SET utf8 COLLATE utf8_unicode_ci NOT NULL,
+  making_time varchar(100) CHARACTER SET utf8 COLLATE utf8_unicode_ci NOT NULL,
+  serves varchar(100) CHARACTER SET utf8 COLLATE utf8_unicode_ci NOT NULL,
+  ingredients varchar(300) CHARACTER SET utf8 COLLATE utf8_unicode_ci NOT NULL,
+  cost integer NOT NULL,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at datetime on update CURRENT_TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO recipes (
+  id,
+  title,
+  making_time,
+  serves,
+  ingredients,
+  cost,
+  created_at,
+  updated_at
+)
+VALUES (
+  1,
+  'チキンカレー',
+  '45分',
+  '4人',
+  '玉ねぎ,肉,スパイス',
+  1000,
+  '2016-01-10 12:10:12',
+  '2016-01-10 12:10:12'
+);
+
+INSERT INTO recipes (
+  id,
+  title,
+  making_time,
+  serves,
+  ingredients,
+  cost,
+  created_at,
+  updated_at
+)
+VALUES (
+  2,
+  'オムライス',
+  '30分',
+  '2人',
+  '玉ねぎ,卵,スパイス,醤油',
+  700,
+  '2016-01-11 13:10:12',
+  '2016-01-11 13:10:12'
+);
+```
+
+## 環境変数
+
+データベース接続情報は環境変数から取得します。以下の変数を設定してください:
+
+- `DB_HOST` : データベースのホスト名（例: `localhost`）
+- `DB_USER` : データベースのユーザー名（例: `root`）
+- `DB_PASSWORD` : データベースのパスワード
+- `DB_DATABASE` : 使用するデータベース名（例: `recipes_db`）
+
+## 注意事項
+
+- 本 API は、REST の設計原則に従い、すべての有効なエンドポイントで HTTP ステータスコード `200` を返し、未定義のエンドポイントは `484` を返す仕様となっています。
+- セキュリティやエラーハンドリングの強化については、プロダクション環境に合わせて適宜実装してください。
+- Optionalである、Code on Demand の機能は採用していません。
+
+---
