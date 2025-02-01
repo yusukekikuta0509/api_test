@@ -4,9 +4,16 @@ const app = express();
 
 app.use(express.json());
 
-
-
-// ------------- エンドポイント実装 ------------- //
+// MySQL接続プールの定義
+const pool = mysql.createPool({
+  host: process.env.DB_HOST || 'localhost',
+  user: process.env.DB_USER || 'root',
+  password: process.env.DB_PASSWORD || 'your_password',
+  database: process.env.DB_DATABASE || 'recipes_db',
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0
+});
 
 // ● POST /recipes
 // レシピ新規作成（必須パラメーター: title, making_time, serves, ingredients, cost）
@@ -29,7 +36,7 @@ app.post('/recipes', (req, res) => {
       });
     }
     const insertedId = result.insertId;
-    // 作成されたレシピ情報を取得（created_at, updated_at はフォーマットして返す）
+    // 作成されたレシピ情報を取得（created_at, updated_at をフォーマットして返す）
     const selectQuery = `
       SELECT 
         id, 
@@ -50,8 +57,7 @@ app.post('/recipes', (req, res) => {
         });
       }
       const recipe = rows[0];
-      // サンプルレスポンスに合わせ cost を文字列に変換
-      recipe.cost = recipe.cost.toString();
+      recipe.cost = recipe.cost.toString(); // サンプルレスポンスに合わせ
       return res.status(200).json({
         message: "Recipe successfully created!",
         recipe: [recipe]
@@ -158,7 +164,7 @@ app.use((req, res) => {
   res.status(484).json({ message: "Not Found" });
 });
 
-// サーバー起動
+// サーバー起動（Herokuではprocess.env.PORTが自動設定されるため、そちらを利用）
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
