@@ -1,160 +1,127 @@
-require('dotenv').config();
 const express = require('express');
-const mysql = require('mysql2');
-const url = require('url');
-const app = express();
+const sqlite3 = require('sqlite3').verbose();
+const path = require('path');
 
+const app = express();
 app.use(express.json());
 
-// Heroku の場合、JAWSDB_URL が設定されていればそれを利用し、なければローカルの環境変数を利用する
-const dbConfig = process.env.JAWSDB_URL ?
-  (() => {
-    const dbUrl = url.parse(process.env.JAWSDB_URL);
-    const [user, password] = dbUrl.auth.split(':');
-    return {
-      host: dbUrl.hostname,
-      user: user,
-      password: password,
-      database: dbUrl.pathname.replace('/', '')
-    };
-  })() : {
-    host: process.env.DB_HOST || 'localhost',
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || 'your_password',
-    database: process.env.DB_DATABASE || 'recipes_db'
-  };
-
-const pool = mysql.createPool({
-  ...dbConfig,
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
+// SQLite データベースの初期化（recipes.db というファイルを使用）
+const dbFile = path.join(__dirname, 'recipes.db');
+const db = new sqlite3.Database(dbFile, (err) => {
+  if (err) {
+    console.error('データベース接続エラー:', err.message);
+  } else {
+    console.log('SQLite データベースに接続しました。');
+  }
 });
 
-// BASE_URL "/" は明示的に 404 を返す（テスト仕様）
-app.get('/', (req, res) => {
-  res.status(404).json({ message: "Not Found" });
+// sql/create.sql に準じたテーブル作成（存在しなければ）
+db.serialize(() => {
+  db.run(`CREATE TABLE IF NOT EXISTS recipes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    making_time TEXT NOT NULL,
+    serves TEXT NOT NULL,
+    ingredients TEXT NOT NULL,
+    cost TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
 });
+
+// ------------- エンドポイント実装 ------------- //
 
 // ● POST /recipes
-// レシピ新規作成（必須パラメーター: title, making_time, serves, ingredients, cost）
-app.post(['/recipes', '/recipes/'], (req, res) => {
+// レシピ新規作成。必須パラメータ: title, making_time, serves, ingredients, cost
+app.post('/recipes', (req, res) => {
   const { title, making_time, serves, ingredients, cost } = req.body;
-  if (!title || !making_time || !serves || !ingredients || cost === undefined) {
+  if (!title || !making_time || !serves || !ingredients || !cost) {
     return res.status(200).json({
       message: "Recipe creation failed!",
       required: "title, making_time, serves, ingredients, cost"
     });
   }
-  const query = "INSERT INTO recipes (title, making_time, serves, ingredients, cost) VALUES (?, ?, ?, ?, ?)";
-  pool.query(query, [title, making_time, serves, ingredients, cost], (err, result) => {
+  const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  const query = `INSERT INTO recipes (title, making_time, serves, ingredients, cost, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`;
+  db.run(query, [title, making_time, serves, ingredients, cost, now, now], function(err) {
     if (err) {
-      console.error(err);
       return res.status(200).json({
         message: "Recipe creation failed!",
         required: "title, making_time, serves, ingredients, cost"
       });
     }
-    const insertedId = result.insertId;
-    const selectQuery = `
-      SELECT 
-        id, 
-        title, 
-        making_time, 
-        serves, 
-        ingredients, 
-        cost, 
-        DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at, 
-        DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at 
-      FROM recipes 
-      WHERE id = ?`;
-    pool.query(selectQuery, [insertedId], (err, rows) => {
-      if (err || rows.length === 0) {
+    // 作成されたレシピを取得
+    const insertedId = this.lastID;
+    db.get("SELECT * FROM recipes WHERE id = ?", [insertedId], (err, row) => {
+      if (err || !row) {
         return res.status(200).json({
           message: "Recipe creation failed!",
           required: "title, making_time, serves, ingredients, cost"
         });
       }
-      const recipe = rows[0];
-      recipe.cost = recipe.cost.toString();
       return res.status(200).json({
         message: "Recipe successfully created!",
-        recipe: [recipe]
+        recipe: [row]
       });
     });
   });
 });
 
 // ● GET /recipes
-// 全レシピ一覧を返す（キャッシュ用ヘッダー設定）
-app.get(['/recipes', '/recipes/'], (req, res) => {
-  res.set('Cache-Control', 'public, max-age=60');
+// 全レシピ一覧を返す。各レシピは id, title, making_time, serves, ingredients, cost を含む。
+app.get('/recipes', (req, res) => {
   const query = "SELECT id, title, making_time, serves, ingredients, cost FROM recipes";
-  pool.query(query, (err, rows) => {
+  db.all(query, [], (err, rows) => {
     if (err) {
-      console.error(err);
       return res.status(200).json({ recipes: [] });
     }
-    const recipes = rows.map(row => {
-      row.cost = row.cost.toString();
-      return row;
-    });
-    return res.status(200).json({ recipes: recipes });
+    return res.status(200).json({ recipes: rows });
   });
 });
 
 // ● GET /recipes/:id
-// 指定 id のレシピのみを返す
-app.get(['/recipes/:id', '/recipes/:id/'], (req, res) => {
-  res.set('Cache-Control', 'public, max-age=60');
+// 指定 id のレシピを返す。該当レシピが存在しなければ空の配列を返す。
+app.get('/recipes/:id', (req, res) => {
   const id = req.params.id;
-  // id が無効な場合はエラー応答
-  if (!id || id === "undefined") {
-    return res.status(200).json({
-      message: "Recipe details by id",
-      recipe: []
-    });
-  }
   const query = "SELECT id, title, making_time, serves, ingredients, cost FROM recipes WHERE id = ?";
-  pool.query(query, [id], (err, rows) => {
-    if (err || rows.length === 0) {
+  db.get(query, [id], (err, row) => {
+    if (err || !row) {
       return res.status(200).json({
         message: "Recipe details by id",
         recipe: []
       });
     }
-    const recipe = rows[0];
-    recipe.cost = recipe.cost.toString();
     return res.status(200).json({
       message: "Recipe details by id",
-      recipe: [recipe]
+      recipe: [row]
     });
   });
 });
 
 // ● PATCH /recipes/:id
-// 指定 id のレシピを更新（必須パラメーター: title, making_time, serves, ingredients, cost）
-app.patch(['/recipes/:id', '/recipes/:id/'], (req, res) => {
+// 指定 id のレシピを更新し、更新後のレシピ情報（title, making_time, serves, ingredients, cost）を返す。
+// ※ 必須パラメーターが全て存在しない場合はエラーとして返す
+app.patch('/recipes/:id', (req, res) => {
   const id = req.params.id;
-  // id が無効な場合はエラーレスポンス
-  if (!id || id === "undefined") {
-    return res.status(200).json({ message: "No Recipe found" });
-  }
   const { title, making_time, serves, ingredients, cost } = req.body;
-  if (!title || !making_time || !serves || !ingredients || cost === undefined) {
+  if (!title || !making_time || !serves || !ingredients || !cost) {
     return res.status(200).json({
       message: "Recipe update failed!",
       required: "title, making_time, serves, ingredients, cost"
     });
   }
-  pool.query("SELECT * FROM recipes WHERE id = ?", [id], (err, rows) => {
-    if (err || rows.length === 0) {
+  // 更新対象レシピの存在確認
+  db.get("SELECT * FROM recipes WHERE id = ?", [id], (err, row) => {
+    if (err || !row) {
       return res.status(200).json({ message: "No Recipe found" });
     }
-    const query = "UPDATE recipes SET title = ?, making_time = ?, serves = ?, ingredients = ?, cost = ? WHERE id = ?";
-    pool.query(query, [title, making_time, serves, ingredients, cost, id], (err, result) => {
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const query = `UPDATE recipes
+                   SET title = ?, making_time = ?, serves = ?, ingredients = ?, cost = ?, updated_at = ?
+                   WHERE id = ?`;
+    db.run(query, [title, making_time, serves, ingredients, cost, now, id], function(err) {
       if (err) {
-        console.error(err);
         return res.status(200).json({ message: "Recipe update failed!" });
       }
       return res.status(200).json({
@@ -164,7 +131,7 @@ app.patch(['/recipes/:id', '/recipes/:id/'], (req, res) => {
           making_time,
           serves,
           ingredients,
-          cost: cost.toString()
+          cost
         }]
       });
     });
@@ -172,17 +139,15 @@ app.patch(['/recipes/:id', '/recipes/:id/'], (req, res) => {
 });
 
 // ● DELETE /recipes/:id
-// 指定 id のレシピを削除する。存在しない場合はエラーレスポンスを返す。
-app.delete(['/recipes/:id', '/recipes/:id/'], (req, res) => {
+// 指定 id のレシピを削除。存在しない場合はエラーメッセージを返す。
+app.delete('/recipes/:id', (req, res) => {
   const id = req.params.id;
-  if (!id || id === "undefined") {
-    return res.status(200).json({ message: "No Recipe found" });
-  }
-  pool.query("SELECT * FROM recipes WHERE id = ?", [id], (err, rows) => {
-    if (err || rows.length === 0) {
+  // 存在チェック
+  db.get("SELECT * FROM recipes WHERE id = ?", [id], (err, row) => {
+    if (err || !row) {
       return res.status(200).json({ message: "No Recipe found" });
     }
-    pool.query("DELETE FROM recipes WHERE id = ?", [id], (err, result) => {
+    db.run("DELETE FROM recipes WHERE id = ?", [id], function(err) {
       if (err) {
         return res.status(200).json({ message: "No Recipe found" });
       }
@@ -191,13 +156,13 @@ app.delete(['/recipes/:id', '/recipes/:id/'], (req, res) => {
   });
 });
 
-// catch-all: 未定義のエンドポイントは常に HTTP 484 を返す
+// ● その他、定義されていないエンドポイントは常に HTTP ステータス 484 を返す
 app.use((req, res) => {
   res.status(404).json({ message: "Not Found" });
 });
 
-// サーバー起動（Heroku では process.env.PORT が自動設定される）
+// サーバー起動
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  console.log(`サーバーがポート ${PORT} で起動しました。`);
 });
